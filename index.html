@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PutAway Productivity Tracker</title>
+
+  <!-- SheetJS para exportação XLSX -->
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
+  <!-- FontAwesome para ícones -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+
+  <style>
+    /* Reset e tipografia */
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family: 'Poppins', sans-serif; background:#f4f4f4; color:#333; }
+
+    /* Top Bar */
+    .top-bar {
+      background:#d32f2f; color:#fff;
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0.75rem 1.5rem;
+      position:fixed; top:0; left:0; right:0; z-index:1000;
+    }
+    .top-bar .logo-container img { height:40px; margin-right:0.75rem; }
+    .top-bar .title { font-size:1.25rem; font-weight:700; flex:1; }
+    .top-bar .tab-nav { display:flex; gap:0.5rem; }
+    .tab-btn {
+      background:transparent; border:none; color:#fff;
+      font-size:1rem; cursor:pointer; position:relative;
+      padding:0.25rem 0.5rem;
+    }
+    .tab-btn .btn-text { opacity:0; margin-left:0.25rem; color:#FFCC00; transition:opacity 0.3s; }
+    .tab-btn:hover .btn-text, .tab-btn.active .btn-text { opacity:1; }
+    .user-info { font-size:0.75rem; opacity:0.85; }
+
+    /* Sidebar */
+    .sidebar {
+      position:fixed;
+      top:60px;
+      left:0;
+      bottom:0;
+      width:260px;
+      background:#000;
+      /* Espaçamento interno maior no topo */
+      padding:2rem 1rem 1rem 1rem;
+      display:flex;
+      flex-direction:column;
+      gap:1rem;
+      color:#fff;
+      box-shadow:2px 0 6px rgba(0,0,0,0.3);
+      z-index:900;
+    }
+    .sidebar .action-btn {
+      display:flex; align-items:center; gap:0.5rem;
+      padding:0.5rem; font-size:0.875rem; color:#fff;
+      background:#333; border:none; border-radius:4px;
+      cursor:pointer; transition:background 0.3s;
+    }
+    .sidebar .action-btn:hover { background:#222; padding-left:0.75rem; }
+    #csvFileInput { display:none; }
+
+    .summary-card {
+      background:#333; border-radius:4px;
+      padding:1rem; display:flex; flex-direction:column;
+      align-items:center; transition:background 0.3s;
+    }
+    .summary-card:hover { background:#222; }
+    .summary-title { font-size:1.1rem; color:#fff; font-weight:400; }
+    .summary-number { font-size:1.25rem; font-weight:700; color:#FFCC00; }
+
+    /* Main Content */
+    .main-content {
+      margin-top:50px;
+      margin-left:260px;
+      padding:1rem;
+      overflow:auto;
+      height:calc(100vh - 40px);
+    }
+
+    /* Tabelas */
+    table { 
+  width:100%; 
+  border-collapse:collapse; 
+  margin-top:1rem; 
+}
+th, td {
+  padding:0.5rem; 
+  text-align:center;
+  border:1px solid #ddd; 
+  font-size:0.875rem;
+}
+/* Cabeçalhos fixos */
+thead tr:first-child th {
+  background:#000; 
+  color:#fff;
+  position:sticky; 
+  top:0; 
+  z-index:2;
+}
+/* Linha de filtros abaixo do header */
+.filter-row { 
+  background:#000; 
+  color:#fff; 
+}
+.filter-row input,
+.filter-row select {
+  width:90%; 
+  padding:0.25rem;
+  font-size:0.75rem; 
+  border:1px solid #ccc; 
+  border-radius:3px;
+}
+tbody tr:nth-child(even) { 
+  background:#fafafa; 
+}
+
+/* ← AQUI, cole este bloco para “Performance” (8ª coluna) */
+#productivityTable th:nth-child(8) {
+  width: 180px;
+}
+#productivityTable td:nth-child(8) {
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Performance classes */
+.performance-well-done { color:#28a745; font-weight:700; }
+.performance-almost-there { color:#ff8c00; font-weight:700; }
+.performance-poor { color:#dc3545; font-weight:700; }
+.performance-no-activity { color:#000; font-weight:700; }
+  </style>
+</head>
+<body>
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <div class="logo-container">
+      <img src="DHL-logo.png" alt="DHL Logo" />
+    </div>
+    <div class="title">PutAway Productivity Tracker</div>
+    <div class="tab-nav">
+      <button id="homeTabBtn" class="tab-btn active" data-target="homeTabContent" title="Home">
+        <i class="fa fa-home"></i><span class="btn-text">Home</span>
+      </button>
+      <button id="gapsTabBtn" class="tab-btn" data-target="gapsTabContent" title="Gaps">
+        <i class="fa fa-chart-bar"></i><span class="btn-text">Gaps</span>
+      </button>
+    </div>
+    <div class="user-info">Victor Ribeiro ® (Solutions) ©</div>
+  </div>
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <label for="csvFileInput" class="action-btn">
+      <i class="fa fa-file-csv"></i>Choose CSV File
+    </label>
+    <input type="file" id="csvFileInput" accept=".csv" />
+    <button id="downloadReportBtnXLSX" class="action-btn">
+      <i class="fa fa-download"></i>Download XLSX
+    </button>
+    <div class="summary-card">
+      <div class="summary-title">Total User ID</div>
+      <div class="summary-number" id="userCountLabel">0</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">T. User ID Lost</div>
+      <div class="summary-number" id="userLostLabel">0.00</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">T.W.H</div>
+      <div class="summary-number" id="twhLabel">00:00:00</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">Prod. Hours</div>
+      <div class="summary-number" id="prodHoursLabel">00:00:00</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">Diferença</div>
+      <div class="summary-number" id="differenceLabel">00:00:00</div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="main-content">
+    <!-- Home Tab -->
+    <div id="homeTabContent">
+      <table id="productivityTable">
+        <thead>
+          <tr>
+            <th>Date</th><th>User ID</th><th>Qty</th><th>In Time</th><th>Out Time</th>
+            <th>Total Hours</th><th>Prod. Hours</th><th>Performance</th>
+            <th>Total Gaps</th><th>N. Gaps</th><th>Qty. Tnx</th><th>Gap vs Txn%</th><th>Avg. P. Hour</th>
+          </tr>
+          <tr class="filter-row">
+            <th></th>
+            <th><input type="text" id="filterUserId" placeholder="Filter by User ID" /></th>
+            <th></th><th></th><th></th><th></th><th></th>
+            <th><select id="filterPerformance"><option value="">All</option><option>Well Done</option><option>Almost There</option><option>Poor</option><option>No Activity</option></select></th>
+            <th></th><th></th><th></th><th></th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <!-- Gaps Tab -->
+    <div id="gapsTabContent" style="display:none;">
+      <table id="gapsTable">
+        <thead>
+          <tr>
+            <th>Date</th><th>User ID</th><th>Location IN</th><th>Location OUT</th><th>In Time</th><th>Out Time</th><th>Gap Time</th><th>Gap #</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+  <script>
+    // Alterna abas
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('#homeTabContent, #gapsTabContent').forEach(div=>div.style.display='none');
+        document.getElementById(btn.dataset.target).style.display='block';
+      });
+    });
+    // Envolvendo todo o código em DOMContentLoaded para garantir que os elementos estejam prontos
+    document.addEventListener('DOMContentLoaded', function() {
+
+      /* ======================================================
+       *  FUNÇÕES AUXILIARES
+       * ====================================================== */
+      function timeToSeconds(time) {
+        const [h, m, s] = time.split(':').map(Number);
+        return (h || 0) * 3600 + (m || 0) * 60 + (s || 0);
+      }
+
+      function ensureTimeFormat(time) {
+        const parts = time.split(':');
+        return parts.length === 2 ? `${time}:00` : time;
+      }
+
+      function calculateSecondsDifference(start, end) {
+        start = ensureTimeFormat(start.trim());
+        end = ensureTimeFormat(end.trim());
+        const startSec = timeToSeconds(start);
+        const endSec = timeToSeconds(end);
+        let diff = endSec - startSec;
+        if (diff < 0) diff += 24 * 3600;
+        return diff;
+      }
+
+      function formatDecimalToTime(decimalHours) {
+        let sign = "";
+        if (decimalHours < 0) {
+          sign = "-";
+          decimalHours = Math.abs(decimalHours);
+        }
+        const totalSeconds = Math.round(decimalHours * 3600);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 3600 % 60;
+        return (
+          sign +
+          String(hours).padStart(2, '0') + ":" +
+          String(minutes).padStart(2, '0') + ":" +
+          String(seconds).padStart(2, '0')
+        );
+      }
+
+      function formatDate(dateStr) {
+        if (!dateStr) return "";
+        dateStr = dateStr.trim().toUpperCase();
+        const monthNames = {
+          JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6,
+          JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12
+        };
+        let match = dateStr.match(/(\d{1,2})[^\dA-Z]?([A-Z]{3})[^\dA-Z]?(\d{1,4})/);
+        if (match) {
+          let day = parseInt(match[1], 10);
+          let mon = match[2];
+          let year = parseInt(match[3], 10) % 100;
+          return `${String(day).padStart(2,'0')}-${mon}-${String(year).padStart(2,'0')}`;
+        }
+        match = dateStr.match(/(\d{4})[^\d](\d{1,2})[^\d](\d{1,2})/);
+        if (match) {
+          let y = parseInt(match[1], 10);
+          let m = parseInt(match[2], 10);
+          let d = parseInt(match[3], 10);
+          let year = y % 100;
+          let monAbbrev = Object.keys(monthNames).find(k => monthNames[k] === m) || 'JAN';
+          return `${String(d).padStart(2,'0')}-${monAbbrev}-${String(year).padStart(2,'0')}`;
+        }
+        match = dateStr.match(/(\d{1,2})[^\d](\d{1,2})[^\d](\d{4})/);
+        if (match) {
+          let d = parseInt(match[1], 10);
+          let m = parseInt(match[2], 10);
+          let y = parseInt(match[3], 10);
+          let year = y % 100;
+          let monAbbrev = Object.keys(monthNames).find(k => monthNames[k] === m) || 'JAN';
+          return `${String(d).padStart(2,'0')}-${monAbbrev}-${String(year).padStart(2,'0')}`;
+        }
+        return dateStr;
+      }
+
+      function isTagValid(tag) {
+        const validTags = ['Z', 'S', 'IC', 'CN', 'PAWCN', 'JC', 'PAWOB', 'RTW'];
+        const ignoredTags = ['WRTOB', 'WRTCON', 'WRT', 'CL', 'TT'];
+        if (ignoredTags.some(prefix => tag.startsWith(prefix))) return false;
+        return validTags.some(prefix => tag.startsWith(prefix));
+      }
+
+      function getTagTarget(tag) {
+        const highTargetTags = ['Z', 'S', 'IC'];
+        const lowTargetTags = ['CN', 'PAWCN', 'JC', 'PAWOB', 'RTW'];
+        if (highTargetTags.some(prefix => tag.startsWith(prefix))) return 290;
+        if (lowTargetTags.some(prefix => tag.startsWith(prefix))) return 72;
+        return 0;
+      }
+
+      /* ======================================================
+       *  LÓGICA PRINCIPAL
+       * ====================================================== */
+
+      document.getElementById('csvFileInput').addEventListener('change', handleFileUpload);
+      document.getElementById('downloadReportBtnXLSX').addEventListener('click', downloadExcelReport);
+
+      window.onload = function () {
+        const savedData = localStorage.getItem('putawayData');
+        if (savedData) {
+          const dataMap = JSON.parse(savedData);
+          updateTable(dataMap);
+          updateStats(dataMap);
+          updateGapsTable(dataMap);
+        }
+      };
+
+      /* TROCA DE ABAS */
+      function showHomeTab() {
+        document.getElementById('homeTabContent').style.display = 'block';
+        document.getElementById('gapsTabContent').style.display = 'none';
+      }
+      function showGapsTab() {
+        document.getElementById('homeTabContent').style.display = 'none';
+        document.getElementById('gapsTabContent').style.display = 'block';
+        // Reaplica o filtro ao trocar para a aba Gaps
+        const savedData = localStorage.getItem('putawayData');
+        if (savedData) {
+          const dataMap = JSON.parse(savedData);
+          applyFilters(dataMap);
+        }
+      }
+
+      /* EVENT LISTENERS PARA TROCA DE ABAS */
+      document.getElementById('homeTabBtn').addEventListener('click', showHomeTab);
+      document.getElementById('gapsTabBtn').addEventListener('click', showGapsTab);
+
+      /* PROCESSAMENTO DO CSV */
+      function handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) {
+          console.log("No file selected.");
+          return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const text = e.target.result;
+          console.log("File uploaded successfully.");
+          processCSV(text);
+        };
+        reader.readAsText(file);
+      }
+
+      function processCSV(csvText) {
+        try {
+          const delimiter = csvText.includes(',') ? ',' : '\t';
+          const rows = csvText.split('\n').map(row => row.split(delimiter));
+
+          // Verifica se a linha 4 possui valor na célula C4; caso contrário, usa B4
+          const hasDateInC4 = rows[3] && rows[3].length >= 3 && rows[3][2].trim() !== "";
+          const dateFromFile = hasDateInC4 ? rows[3][2]?.trim() : rows[3]?.[1]?.trim();
+          const formattedDate = formatDate(dateFromFile);
+
+          const dataMap = {};
+          const validEvents = {};
+          const allEvents = {};
+
+          // Ordena as linhas de dados (a partir da linha 6) usando o índice correto para o horário
+          const sortedRows = rows.slice(5).sort((a, b) => {
+            const timeIndex = a.length >= 11 ? 10 : 9;
+            const timeA = a[timeIndex] || '';
+            const timeB = b[timeIndex] || '';
+            return timeA.localeCompare(timeB);
+          });
+
+          sortedRows.forEach(row => {
+            const isNewFormat = row.length >= 11;
+            const userId = row[0]?.trim();
+            const tag = isNewFormat ? row[5]?.trim() : row[4]?.trim();
+            const qty = parseInt(isNewFormat ? row[6]?.trim() : row[5]?.trim(), 10) || 0;
+            const time = isNewFormat ? row[10]?.trim() : row[9]?.trim();
+            const location = isNewFormat ? row[9]?.trim() : "";
+
+            if (!userId || !tag || !qty || !time) return;
+
+            if (!dataMap[userId]) {
+              dataMap[userId] = {
+                qty290: 0,
+                qty72: 0,
+                inTime: null,
+                outTime: null,
+                totalHours: 0,
+                performance: '',
+                performanceClass: '',
+                totalGaps: 0,
+                nGaps: 0,
+                date: formattedDate,
+                txnCount: 0,
+                gapsList: [] // Inicia o array para detalhamento dos gaps
+              };
+              validEvents[userId] = [];
+              allEvents[userId] = [];
+            }
+            // Incrementa a contagem de transações
+            dataMap[userId].txnCount++;
+
+            // Armazena objeto {time, location} para detalhamento
+            allEvents[userId].push({ time: time, location: location });
+
+            // Armazena em validEvents de forma única
+            if (!validEvents[userId].some(e => e.time === time)) {
+              validEvents[userId].push({ time: time, location: location });
+            }
+            
+            if (!isTagValid(tag)) return;
+            
+            const target = getTagTarget(tag);
+            if (target === 290) dataMap[userId].qty290 += qty;
+            if (target === 72)  dataMap[userId].qty72  += qty;
+            
+            if (!dataMap[userId].inTime || time < dataMap[userId].inTime) {
+              dataMap[userId].inTime = time;
+            }
+            if (!dataMap[userId].outTime || time > dataMap[userId].outTime) {
+              dataMap[userId].outTime = time;
+            }
+          });
+
+          Object.keys(allEvents).forEach(userId => {
+            allEvents[userId] = allEvents[userId]
+              .sort((a, b) => a.time.localeCompare(b.time));
+          });
+          Object.keys(validEvents).forEach(userId => {
+            validEvents[userId] = validEvents[userId]
+              .sort((a, b) => a.time.localeCompare(b.time));
+          });
+
+          // Calcula os gaps individuais e armazena os detalhes (com Location IN/OUT)
+          Object.keys(validEvents).forEach(userId => {
+            const events = validEvents[userId];
+            const userAll = allEvents[userId];
+            for (let i = 1; i < events.length; i++) {
+              const prevObj = events[i - 1];
+              const currObj = events[i];
+              const prev = prevObj.time;
+              const curr = currObj.time;
+              const diffSec = calculateSecondsDifference(prev, curr);
+              const gapHoras = diffSec / 3600;
+              const intermediario = userAll.some(ev => ev.time > prev && ev.time < curr);
+              if (gapHoras >= 0.0833 && !intermediario) {
+                dataMap[userId].totalGaps += gapHoras;
+                dataMap[userId].nGaps += 1;
+                // Armazena detalhadamente o gap
+                dataMap[userId].gapsList.push({
+                  gapSec: diffSec,
+                  start: prev,
+                  end: curr,
+                  locationIn: prevObj.location,
+                  locationOut: currObj.location
+                });
+              }
+            }
+          });
+
+          // Calcula a performance para cada usuário
+          Object.keys(dataMap).forEach(userId => {
+            const data = dataMap[userId];
+            if (!data.inTime || !data.outTime) {
+              delete dataMap[userId];
+              return;
+            }
+            const totalHoursDecimal = calculateSecondsDifference(data.inTime, data.outTime) / 3600;
+            data.totalHours = formatDecimalToTime(totalHoursDecimal);
+            if (totalHoursDecimal <= 0) {
+              data.performance = "No Activity (0.00%)";
+              data.performanceClass = "performance-no-activity";
+              return;
+            }
+            const performance290 = data.qty290 > 0 ? (data.qty290 / (totalHoursDecimal * 290)) * 100 : 0;
+            const performance72 = data.qty72 > 0 ? (data.qty72 / (totalHoursDecimal * 72)) * 100 : 0;
+            let combined = 0;
+            if (data.qty290 > 0 && data.qty72 > 0) {
+              combined = (performance290 + performance72) / 2;
+            } else if (data.qty290 > 0) {
+              combined = performance290;
+            } else if (data.qty72 > 0) {
+              combined = performance72;
+            }
+            if (combined >= 100) {
+              data.performance = `Well Done (${combined.toFixed(2)}%)`;
+              data.performanceClass = "performance-well-done";
+            } else if (combined >= 85) {
+              data.performance = `Almost There (${combined.toFixed(2)}%)`;
+              data.performanceClass = "performance-almost-there";
+            } else if (combined > 0) {
+              data.performance = `Poor (${combined.toFixed(2)}%)`;
+              data.performanceClass = "performance-poor";
+            } else {
+              data.performance = "No Activity (0.00%)";
+              data.performanceClass = "performance-no-activity";
+            }
+          });
+
+          localStorage.setItem('putawayData', JSON.stringify(dataMap));
+          updateTable(dataMap);
+          updateStats(dataMap);
+          updateGapsTable(dataMap);
+        } catch (error) {
+          console.error("Error processing CSV:", error);
+        }
+      }
+
+      /* ======================================================
+       * Atualiza a Tabela Home
+       * ====================================================== */
+      function updateTable(dataMap) {
+        const tableBody = document.querySelector('#productivityTable tbody');
+        tableBody.innerHTML = '';
+
+        Object.entries(dataMap).forEach(([userId, stats]) => {
+          const { qty290, qty72, inTime, outTime, totalHours, performance, performanceClass, totalGaps, nGaps, date, txnCount } = stats;
+          const totalQty = (qty290 || 0) + (qty72 || 0);
+          const totalHoursDecimal = timeToSeconds(totalHours) / 3600;
+
+          let avgPHour = "0";
+          if (totalHoursDecimal > 0) {
+            if (qty290 > 0 && qty72 > 0) {
+              const perf290 = (qty290 / (totalHoursDecimal * 290)) * 100;
+              const perf72 = (qty72 / (totalHoursDecimal * 72)) * 100;
+             avgPHour = ((perf290 + perf72) / 2).toFixed(0);
+            } else if (qty290 > 0) {
+              avgPHour = ((qty290 / (totalHoursDecimal * 290)) * 100).toFixed(0);
+            } else if (qty72 > 0) {
+              avgPHour = ((qty72 / (totalHoursDecimal * 72)) * 100).toFixed(0);
+            }
+          }
+
+          let neededHours = 0;
+          if (qty290 > 0 && qty72 > 0) {
+            neededHours = ((qty290 / 290) + (qty72 / 72)) / 2;
+          } else if (qty290 > 0) {
+            neededHours = qty290 / 290;
+          } else if (qty72 > 0) {
+            neededHours = qty72 / 72;
+          }
+          const prodHours = formatDecimalToTime(neededHours);
+          const gapVsTxn = txnCount ? ((nGaps / txnCount) * 100).toFixed(2) + "%" : "0%";
+
+          const row = document.createElement('tr');
+          row.innerHTML = `
+            <td style="min-width:100px;">${date || ''}</td>
+            <td>${userId}</td>
+            <td>${totalQty}</td>
+            <td>${inTime || 'N/A'}</td>
+            <td>${outTime || 'N/A'}</td>
+            <td>${totalHours || '00:00:00'}</td>
+            <td>${prodHours}</td>
+            <td class="${performanceClass}">${performance}</td>
+            <td>${formatDecimalToTime(totalGaps)}</td>
+            <td>${nGaps || 0}</td>
+            <td>${txnCount || 0}</td>
+            <td>${gapVsTxn}</td>
+            <td>${avgPHour}</td>
+          `;
+          tableBody.appendChild(row);
+        });
+      }
+
+      /* ======================================================
+       * Atualiza as Estatísticas
+       * ====================================================== */
+      function updateStats(dataMap) {
+        let sumWorkedHoursDecimal = 0;
+        let sumNeededHoursDecimal = 0;
+
+        Object.values(dataMap).forEach(stats => {
+          const totalHoursSec = timeToSeconds(stats.totalHours);
+          sumWorkedHoursDecimal += totalHoursSec / 3600;
+
+          const { qty290, qty72 } = stats;
+          let neededHours = 0;
+          if (qty290 > 0 && qty72 > 0) {
+            neededHours = ((qty290 / 290) + (qty72 / 72)) / 2;
+          } else if (qty290 > 0) {
+            neededHours = qty290 / 290;
+          } else if (qty72 > 0) {
+            neededHours = qty72 / 72;
+          }
+          sumNeededHoursDecimal += neededHours;
+        });
+
+        const differenceDecimal = sumWorkedHoursDecimal - sumNeededHoursDecimal;
+        document.getElementById('twhLabel').textContent = formatDecimalToTime(sumWorkedHoursDecimal);
+        document.getElementById('prodHoursLabel').textContent = formatDecimalToTime(sumNeededHoursDecimal);
+        document.getElementById('differenceLabel').textContent = formatDecimalToTime(differenceDecimal);
+
+        const totalUsers = Object.keys(dataMap).length;
+        document.getElementById('userCountLabel').textContent = totalUsers;
+        const lostDecimal = differenceDecimal / 7.5;
+        document.getElementById('userLostLabel').textContent = lostDecimal.toFixed(2);
+      }
+
+      /* ======================================================
+       * Atualiza a Tabela Gaps (Breakdown detalhado por Gap)
+       * ====================================================== */
+      function updateGapsTable(dataMap) {
+        const gapsTableBody = document.querySelector('#gapsTable tbody');
+        gapsTableBody.innerHTML = '';
+
+        // Para cada usuário, percorre gapsList e cria uma linha para cada gap detalhado
+        Object.entries(dataMap).forEach(([userId, stats]) => {
+          if (stats.nGaps > 0 && stats.gapsList && stats.gapsList.length > 0) {
+            stats.gapsList.forEach((gapObj, index) => {
+              const gapTimeFormatted = formatDecimalToTime(gapObj.gapSec / 3600);
+              const row = document.createElement('tr');
+              row.innerHTML = `
+                <td>${stats.date || ''}</td>
+                <td>${userId}</td>
+                <td>${gapObj.locationIn || ''}</td>
+                <td>${gapObj.locationOut || ''}</td>
+                <td>${gapObj.start || 'N/A'}</td>
+                <td>${gapObj.end || 'N/A'}</td>
+                <td>${gapTimeFormatted}</td>
+                <td>${index + 1}</td>
+              `;
+              gapsTableBody.appendChild(row);
+            });
+          }
+        });
+      }
+
+      /* ======================================================
+       * FILTROS (utilizando o mesmo input "filterUserId")
+       * ====================================================== */
+      document.getElementById('filterPerformance').addEventListener('change', () => {
+        const savedData = localStorage.getItem('putawayData');
+        if (savedData) {
+          const dataMap = JSON.parse(savedData);
+          applyFilters(dataMap);
+        }
+      });
+
+      document.getElementById('filterUserId').addEventListener('input', () => {
+        const savedData = localStorage.getItem('putawayData');
+        if (savedData) {
+          const dataMap = JSON.parse(savedData);
+          applyFilters(dataMap);
+        }
+      });
+
+      function applyFilters(dataMap) {
+        const performanceFilter = document.getElementById('filterPerformance').value;
+        const userIdFilter = document.getElementById('filterUserId').value.toLowerCase();
+
+        const filtered = Object.entries(dataMap).filter(([userId, stats]) => {
+          const matchesPerformance = !performanceFilter || stats.performance.includes(performanceFilter);
+          const matchesUserId = !userIdFilter || userId.toLowerCase().includes(userIdFilter);
+          return matchesPerformance && matchesUserId;
+        });
+
+        const filteredMap = Object.fromEntries(filtered);
+        updateTable(filteredMap);
+        updateStats(filteredMap);
+        // Se a aba Gaps estiver ativa, atualiza também a tabela de Gaps
+        if (document.getElementById('gapsTabContent').style.display !== 'none') {
+          updateGapsTable(filteredMap);
+        }
+      }
+
+      /* ======================================================
+       * DOWNLOAD XLSX
+       * ====================================================== */
+      function downloadExcelReport() {
+        const savedData = localStorage.getItem('putawayData');
+        if (!savedData) {
+          alert('No data to download. Please upload a file first.');
+          return;
+        }
+        
+        const dataMap = JSON.parse(savedData);
+        const header = [
+          'Date',
+          'User ID',
+          'Qty',
+          'In Time',
+          'Out Time',
+          'Total Hours',
+          'Prod. Hours',
+          'Performance',
+          'Total Gaps',
+          'N. Gaps',
+          'Qty. Tnx',
+          'Gap vs Txn%',
+          'Avg. P. Hour'
+        ];
+
+        const allData = [header.slice()];
+        const wellDoneData = [header.slice()];
+        const almostThereData = [header.slice()];
+        const poorData = [header.slice()];
+
+        Object.entries(dataMap).forEach(([userId, stats]) => {
+          const { qty290, qty72, inTime, outTime, totalHours, performance, totalGaps, nGaps, date, txnCount } = stats;
+          let neededHoursForRow = 0;
+          if (qty290 > 0 && qty72 > 0) {
+            neededHoursForRow = ((qty290 / 290) + (qty72 / 72)) / 2;
+          } else if (qty290 > 0) {
+            neededHoursForRow = qty290 / 290;
+          } else if (qty72 > 0) {
+            neededHoursForRow = qty72 / 72;
+          }
+          const prodHours = formatDecimalToTime(neededHoursForRow);
+          const totalQty = (qty290 || 0) + (qty72 || 0);
+          const gapVsTxn = txnCount ? ((nGaps / txnCount) * 100).toFixed(2) + "%" : "0%";
+          const totalHoursDecimal = timeToSeconds(totalHours) / 3600;
+
+          let avgPHour = "0";
+          if (totalHoursDecimal > 0) {
+            if (qty290 > 0 && qty72 > 0) {
+              const perf290 = (qty290 / (totalHoursDecimal * 290)) * 100;
+              const perf72 = (qty72 / (totalHoursDecimal * 72)) * 100;
+              avgPHour = ((perf290 + perf72) / 2).toFixed(0);
+            } else if (qty290 > 0) {
+              avgPHour = ((qty290 / (totalHoursDecimal * 290)) * 100).toFixed(0);
+            } else if (qty72 > 0) {
+              avgPHour = ((qty72 / (totalHoursDecimal * 72)) * 100).toFixed(0);
+            }
+          }
+
+          const row = [
+            date,
+            userId,
+            totalQty,
+            inTime,
+            outTime,
+            totalHours,
+            prodHours,
+            performance,
+            formatDecimalToTime(totalGaps),
+            nGaps,
+            txnCount || 0,
+            gapVsTxn,
+            avgPHour
+          ];
+
+          allData.push(row);
+          if (performance.includes('Well Done')) {
+            wellDoneData.push(row);
+          } else if (performance.includes('Almost There')) {
+            almostThereData.push(row);
+          } else if (performance.includes('Poor')) {
+            poorData.push(row);
+          }
+        });
+
+        const workbook = XLSX.utils.book_new();
+        const wsAll = XLSX.utils.aoa_to_sheet(allData);
+        const wsWellDone = XLSX.utils.aoa_to_sheet(wellDoneData);
+        const wsAlmostThere = XLSX.utils.aoa_to_sheet(almostThereData);
+        const wsPoor = XLSX.utils.aoa_to_sheet(poorData);
+
+        XLSX.utils.book_append_sheet(workbook, wsAll, "All Data");
+        XLSX.utils.book_append_sheet(workbook, wsWellDone, "Well Done");
+        XLSX.utils.book_append_sheet(workbook, wsAlmostThere, "Almost There");
+        XLSX.utils.book_append_sheet(workbook, wsPoor, "Poor");
+
+        XLSX.writeFile(workbook, "PutAway_Report.xlsx");
+      }
+      
+      /* ======================================================
+       * FIM - EVENT LISTENERS PARA TROCA DE ABAS E OUTROS
+       * ====================================================== */
+      
+    });
+  </script>
+</body>
+</html>
